@@ -1,0 +1,176 @@
+---
+title: "R_NY"
+author: "Tomasz Kisiel"
+date: "2024-10-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Introduction
+
+This is a simple project aiming to show R skills. Through this project I will share basic skills of loading and formatting data. Multiple tables are joined and grouped in order to present complete summary and explicit statistics. At the end, data are presented in graphics  
+
+Used database is provided with R package for flights departed in 2013 from New York City. 
+
+```{r Reading data, message=FALSE}
+#install.packages("nycflights13")
+#install.packages("tidyverse")
+#install.packages("plotly")
+library(tidyverse)
+library(nycflights13)
+library(plotly)
+cat("Table flights")
+glimpse(flights)
+cat("Table airlines")
+glimpse(airlines)
+cat("Table airports")
+glimpse(airports)
+cat("Table planes")
+glimpse(planes)
+cat("Table weather")
+glimpse(weather)
+```
+There were 336776 flights. 
+The longest one was of 4983 miles but the shortest one was only 17 miles.
+The longest time in air was of 695 minutes but the shortest one was only 20 minutes long.
+Regarding maximum delay it was of 1301 minutes. On the other hand, the earliest departure was 43 minutes before scheduled time.
+
+Flights were served by 16 carriers.
+
+There were 1458 destinations. 
+
+Through the New York City airport there passed 3322 different planes. 
+The oldest one was manufactured in 1956 and the newest one was from 2013.
+The largest plane was designed to carry 450 passengers but the smallest one was only for 2.
+The average cruising speed was of 236.8 mph.
+
+The strongest wind during take off or landing was 1048 mph but the average one was only 10 mph.
+The strongest precipitations were of 1,21 inch.
+Mean visibility was of 9,2 miles but the worst one was of 0,0 miles.
+
+## Data correction
+
+This section present data changes in order to facilitate further analysis.
+
+```{r data correction}
+na_qty <- sum(is.na(airlines),
+    is.na(airports),
+    is.na(flights),
+    is.na(planes),
+    is.na(weather))
+na_qty
+```
+
+Total quantity of NA values is 73941.
+
+## Data collections
+
+This section present initial grouped statistics. Date in flights table was saved in a new column with date type. According to date, corresponding quarter was assigned to each flight. General statistics were calculated for each quarter.
+
+```{r grouped statistics}
+
+flights <- flights %>% 
+  mutate(date = make_date(
+    year = flights$year, 
+    month = flights$month, 
+    day = flights$day))
+
+flights <- flights %>%
+  mutate(quart = quarter(
+  flights$date,
+  type = "quarter",
+  fiscal_start = 1))
+
+quart_summary <- flights %>% 
+  group_by(quart) %>% 
+  summarize(
+    mean_dep_delay = mean(dep_delay, na.rm = TRUE), 
+    mean_arr_delay = mean(arr_delay, na.rm = TRUE),
+    mean_air_time = mean(air_time, na.rm = TRUE),
+    mean_distance = mean(distance),
+    number_flights = n())
+
+knitr::kable(
+  quart_summary,
+  caption = "Quarter summary of flights"
+)
+```
+
+The lowest number of flights was made in the first quarter. In the same time, the mean flight distance was the shortest. On the other hand, the highest value of delays was noted in the second quarter.
+
+## Table join
+
+Short statistics of flights were collected for each carrier. They were arranged according to the mean arrival delay, from the highest to the lowest. As we can see, the highest mean delay were above 20 minutes for two airlines: Frontier Airlines Inc. and AirTran Airways Corporation.
+
+```{r airline statistics}
+flights_carrier_stat <- flights %>% 
+  group_by(carrier) %>% 
+  summarize(
+    mean_dep_delay = mean(dep_delay, na.rm = TRUE), 
+    mean_arr_delay = mean(arr_delay, na.rm = TRUE),
+    mean_air_time = mean(air_time, na.rm = TRUE),
+    mean_distance = mean(distance),
+    number_flights = n())
+
+#flights_carrier_stat < arrange(desc(mean_dep_delay'))
+flights_carrier_stat <- inner_join(flights_carrier_stat, airlines, by='carrier')
+flights_carrier_stat <- relocate(flights_carrier_stat, name, carrier) 
+flights_carrier_stat <- flights_carrier_stat %>% 
+  select(-carrier) %>% 
+  arrange(desc(mean_arr_delay))
+
+knitr::kable(
+  flights_carrier_stat,
+  caption = "The worst airline according to mean arrival delay"
+)
+
+```
+
+Having that in mind, we select the flights of those two airlines and we compare wind conditions  for the worst 15 flights.
+
+```{r table join}
+
+worst_flights <- filter(flights, carrier=="FL" | carrier=="F9")
+worst_flights <- left_join(worst_flights, weather, by=join_by("time_hour", "origin"))
+worst_flights <- worst_flights %>%
+  select(arr_delay, carrier, origin, dest, time_hour, wind_speed, precip, visib) %>% 
+  arrange(desc(arr_delay)) 
+ worst_flights <- head(worst_flights, 15) 
+
+ knitr::kable(
+  worst_flights,
+  caption = "15 records of the highest arrival delay for two selected airlines with respect to wind parameters"
+)
+```
+
+
+This summary shows that for the highest arrival delay in majority of cases the weather was not a problem. The only exception is the flight on 8th march 2023 at 8 AM, when visibility was below 1 mile and wind speed was around 20 mph.
+
+## Graphs
+
+This section presents main graphics.
+
+```{r graphs, echo=FALSE, message=FALSE, warning=FALSE}
+
+plot_ly(flights_carrier_stat, x=~name, y=~number_flights) %>% 
+  layout(title="Bar chart: Number of flights according to airline company")
+
+plot_ly(flights, x=~arr_delay) %>% 
+  add_histogram() %>% 
+  layout(title="Histogram: Distribution of arrival delays")
+
+ltys <- c(
+  JFK = "dashdot",
+  EWR = "longdash",
+  LGA = "dash"
+)
+
+plot_ly(weather, x=~time_hour, y=~wind_speed) %>% 
+  add_lines(linetype =~ origin,
+            linetypes = ltys)
+
+```
+
